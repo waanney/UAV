@@ -1,19 +1,42 @@
+"""Run a single-image prediction, optionally with conformal outputs."""
 
-from ultralytics import YOLO,YOLOWorld
+import argparse
+from pathlib import Path
+
 import cv2
+from ultralytics import YOLO
 
-# 加载模型
-model = YOLOWorld("/home/cvlab1003/nianxin/aaai/best.pt")  # 可换成 yolov8s.pt, yolov8m.pt, yolov8l.pt, yolov8x.pt
+from conformal import load_calibrator
+from detect import annotate_result
 
-# 读取图像
-image_path = "/home/cvlab1003/nianxin/aaai/name3.png"
-img = cv2.imread(image_path)
 
-# 检测图像
-results = model(img)
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model", required=True, help="Trained .pt model")
+    parser.add_argument("--source", required=True, help="Input image path")
+    parser.add_argument("--output", default="output.png", help="Annotated output image")
+    parser.add_argument("--calibrator", help="Optional JSON from calibrate_conformal.py")
+    args = parser.parse_args()
 
-# 显示检测结果
-results[0].show()
+    model = YOLO(args.model)
+    calibration = load_calibrator(args.calibrator) if args.calibrator else None
+    settings = (
+        {
+            "imgsz": int(calibration["imgsz"]),
+            "conf": float(calibration["predict_conf"]),
+            "iou": float(calibration["predict_iou"]),
+        }
+        if calibration
+        else {"imgsz": 640, "conf": 0.25, "iou": 0.45}
+    )
+    result = model.predict(source=args.source, verbose=False, **settings)[0]
+    annotated = annotate_result(result, calibration)
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if not cv2.imwrite(str(output_path), annotated):
+        raise IOError(f"Could not write output image: {output_path}")
+    print(f"Saved prediction: {output_path}")
 
-# 或保存检测结果图像
-results[0].save(filename="output1.png")
+
+if __name__ == "__main__":
+    main()
