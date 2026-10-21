@@ -1,0 +1,42 @@
+# MCR-UOD causal configuration.
+#
+# Symbol mapping to the MCR-UOD paper (NeurIPS 2025):
+#   tau   -> tau in Eq.(5):   fraction of pixels selected, N = tau * H * W
+#   d2    -> D2:              unified text/feature embedding dimension
+#   alpha -> alpha in Eq.(11): dictionary update momentum z <- a*z + (1-a)*F_p
+#   K, M  -> K x M prompts:   weather x (occlusion x view) combinations (S = nc*K*M)
+#   prior -> P(Z) in Eq.(1),(6),(7)
+#   nwgm  -> Eq.(7): E_z[softmax(f)] ~= softmax(E_z[f])
+#
+# Values default to the settings used by the upstream implementation unless
+# noted otherwise.
+
+causal:
+  tau: 0.007            # Eq.(5) top-k pixel ratio (upstream used 0.007)
+  d2: 512               # unified embedding dim, matches CLIP ViT-B/32 text dim
+  num_heads: 1          # attention heads for BACR cross-attention
+  alpha: 0.85           # Eq.(11) momentum (equivalent to gamma=0.15 in upstream)
+  learnable_prior: true # true: P(Z)=softmax(prior_logits); false: empirical from data
+  use_prior: true       # multiply attention weights by P(Z) before marginalising
+  use_nwgm: true        # apply NWGM approximation Eq.(7)
+  fuse_mode: concat     # Eq.(10): "concat" (paper) | "residual" (upstream, ablation)
+  dict_update: argmax   # Eq.(11) assignment: "argmax" (paper) | "threshold" (upstream)
+  dict_threshold: 0.5   # similarity threshold, only used when dict_update == "threshold"
+
+zoom:
+  mode: both            # "region" (1a) | "feature" (1b) | "both"
+  zoom_scale: 2.0       # rescale factor applied to cropped ROI (region zoom)
+  roi_from: score       # ROI source: "score" (LGRE existence map) | "gt" (train only)
+  min_roi_pixels: 16    # skip ROIs smaller than this (avoids degenerate crops)
+
+prompt:
+  mode: attribute_bank  # "attribute_bank" (MT2, prompt engineering) | "plain"
+  template: "a photo of a {cls}, {attr}, {view}"  # prompt template with slots
+  # confounder grid used to build the text bank (mirrors confunder.txt)
+  weather: [sunny, rainy, foggy, night]
+  occlusion: [no, partial, heavy]
+  view: [front, side, rear, top]
+
+# NOTE: the uncertainty/conformal half of the project is owned by the other team
+# and is intentionally not configured here. The causal team adds
+# `causal/adapter.py` to join both halves once the interface is agreed.
