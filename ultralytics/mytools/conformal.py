@@ -132,6 +132,109 @@ class SplitConformalDetector:
             raise ValueError("p_values must be finite and in [0, 1]")
         return p_values > self.alpha
 
+    def calibrate_confidence(
+        self,
+        confidence: Any,
+        class_ids: Any,
+        method: str = "multiply",
+        alpha: float | None = None,
+        gamma: float = 1.0,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Compute conformal p-values and calibrated confidence scores.
+
+        Args:
+            confidence: Raw detector confidence values in [0, 1].
+            class_ids: Predicted class IDs.
+            method: Calibration method:
+                - 'multiply': c_calib = c_raw * (p_value ** gamma)
+                - 'harmonic': harmonic mean of c_raw and p_value
+                - 'p_value': c_calib = p_value
+                - 'soft_threshold': c_raw if p_value >= alpha else c_raw * (p_value / alpha)
+                - 'hard_threshold': c_raw if p_value >= alpha else 0.0
+            alpha: Significance threshold (defaults to self.alpha if None).
+            gamma: Exponent for method='multiply'.
+
+        Returns:
+            Tuple of (calibrated_confidence, p_values).
+        """
+        conf_arr = self._as_1d(confidence, "confidence", float)
+        cls_arr = self._as_1d(class_ids, "class_ids", int)
+        p_vals = self.predict_p_value(conf_arr, cls_arr)
+
+        threshold = self.alpha if alpha is None else float(alpha)
+
+        if method == "multiply":
+            calib_conf = conf_arr * np.power(p_vals, gamma)
+        elif method == "harmonic":
+            calib_conf = (2.0 * conf_arr * p_vals) / (conf_arr + p_vals + 1e-8)
+        elif method == "p_value":
+            calib_conf = p_vals.copy()
+        elif method == "soft_threshold":
+            calib_conf = np.where(
+                p_vals >= threshold,
+                conf_arr,
+                conf_arr * (p_vals / max(threshold, 1e-8)),
+            )
+        elif method == "hard_threshold":
+            calib_conf = np.where(p_vals >= threshold, conf_arr, 0.0)
+        else:
+            raise ValueError(f"Unknown calibration method: '{method}'. Choose from: 'multiply', 'harmonic', 'p_value', 'soft_threshold', 'hard_threshold'")
+
+        return np.clip(calib_conf, 0.0, 1.0), p_vals
+
+    def rerank(
+        self,
+        boxes: Any,
+        confidence: Any,
+        class_ids: Any,
+        method: str = "multiply",
+        alpha: float | None = None,
+        gamma: float = 1.0,
+        filter_rejected: bool = False,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Reranks candidate detections according to calibrated confidence.
+
+        Args:
+            boxes: Bounding boxes with shape (N, 4).
+            confidence: Raw detector confidence with shape (N,).
+            class_ids: Predicted class IDs with shape (N,).
+            method: Calibration method passed to calibrate_confidence.
+            alpha: Significance threshold (defaults to self.alpha if None).
+            gamma: Exponent for method='multiply'.
+            filter_rejected: If True, remove detections where p_value <= alpha.
+
+        Returns:
+            Tuple of (reranked_boxes, reranked_conf, reranked_cls, p_values, keep_indices).
+        """
+        boxes_arr = np.asarray(boxes)
+        conf_arr = self._as_1d(confidence, "confidence", float)
+        cls_arr = self._as_1d(class_ids, "class_ids", int)
+
+        if len(boxes_arr) != len(conf_arr):
+            raise ValueError("boxes and confidence must have equal length")
+
+        calib_conf, p_vals = self.calibrate_confidence(
+            conf_arr, cls_arr, method=method, alpha=alpha, gamma=gamma
+        )
+
+        threshold = self.alpha if alpha is None else float(alpha)
+        if filter_rejected:
+            keep = np.where(p_vals > threshold)[0]
+        else:
+            keep = np.arange(len(conf_arr))
+
+        # Sort indices by calibrated confidence descending
+        sorted_order = np.argsort(-calib_conf[keep])
+        sorted_indices = keep[sorted_order]
+
+        return (
+            boxes_arr[sorted_indices],
+            calib_conf[sorted_indices],
+            cls_arr[sorted_indices],
+            p_vals[sorted_indices],
+            sorted_indices,
+        )
+
     def save(self, path: str | Path) -> None:
         """Save fitted calibration scores and settings as JSON."""
         if self.global_scores is None:

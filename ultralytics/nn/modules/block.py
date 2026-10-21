@@ -596,12 +596,18 @@ class TextFeatureEnhancer(nn.Module):
                 # print(combined_txt_feats[i])
         return combined_txt_feats
 
-from torch_geometric.nn import GCNConv
+try:
+    from torch_geometric.nn import GCNConv
+except ImportError:
+    GCNConv = None
+
 class GraphUpdate(nn.Module):
     """Graph-based feature update module."""
 
     def __init__(self, in_channels, hidden_channels, out_channels):
         super().__init__()
+        if GCNConv is None:
+            raise ImportError("torch_geometric is required for GraphUpdate. Please install torch_geometric.")
         self.gcn1 = GCNConv(in_channels, hidden_channels)
         self.gcn2 = GCNConv(hidden_channels, out_channels)
 

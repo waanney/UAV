@@ -1,0 +1,33 @@
+# Byte-compiled / optimized / DLL files
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE & OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Experiment outputs & runs
+runs/
+wandb/
+*.log
+
+# Checkpoints / large files
+*.pt
+*.pth
+*.onnx
+*.engine
